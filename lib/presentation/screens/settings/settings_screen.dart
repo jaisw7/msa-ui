@@ -2,54 +2,51 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/constants/app_dimensions.dart';
+import '../../../services/alpaca/alpaca_config.dart';
+import '../../providers/providers.dart';
 
 /// Settings screen for app configuration.
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
   @override
+  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  @override
   Widget build(BuildContext context) {
+    final alpacaConfigAsync = ref.watch(alpacaConfigProvider);
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Settings'),
-      ),
+      appBar: AppBar(title: const Text('Settings')),
       body: ListView(
         padding: const EdgeInsets.all(AppDimensions.paddingM),
         children: [
           _SettingsSection(
             title: 'API Configuration',
             children: [
-              _SettingsTile(
-                icon: Icons.key_outlined,
-                title: 'Alpaca API Key',
-                subtitle: 'Configure your paper trading credentials',
-                onTap: () {
-                  // TODO: Implement API key configuration
-                },
-              ),
-              _SettingsTile(
-                icon: Icons.refresh,
-                title: 'Refresh Interval',
-                subtitle: '5 minutes',
-                onTap: () {
-                  // TODO: Implement refresh interval picker
-                },
-              ),
-            ],
-          ),
-          const SizedBox(height: AppDimensions.paddingL),
-          _SettingsSection(
-            title: 'Appearance',
-            children: [
-              _SettingsTile(
-                icon: Icons.dark_mode_outlined,
-                title: 'Theme',
-                subtitle: 'Dark',
-                onTap: () {
-                  // TODO: Implement theme switcher
-                },
+              alpacaConfigAsync.when(
+                data: (config) => _AlpacaConfigTile(
+                  isConfigured: config != null,
+                  isPaper: config?.isPaperTrading ?? true,
+                  onTap: () => _showAlpacaConfigDialog(context, config),
+                ),
+                loading: () => const _SettingsTile(
+                  icon: Icons.key_outlined,
+                  title: 'Alpaca API Key',
+                  subtitle: 'Loading...',
+                  onTap: null,
+                ),
+                error: (e, _) => _SettingsTile(
+                  icon: Icons.key_outlined,
+                  title: 'Alpaca API Key',
+                  subtitle: 'Error loading config',
+                  onTap: () => _showAlpacaConfigDialog(context, null),
+                ),
               ),
             ],
           ),
@@ -59,18 +56,15 @@ class SettingsScreen extends StatelessWidget {
             children: [
               _SettingsTile(
                 icon: Icons.sync,
-                title: 'Sync with Alpaca',
-                subtitle: 'Last synced: Never',
+                title: 'Refresh Data',
+                subtitle: 'Sync positions and market data',
                 onTap: () {
-                  // TODO: Implement sync
-                },
-              ),
-              _SettingsTile(
-                icon: Icons.delete_outline,
-                title: 'Clear Local Data',
-                subtitle: 'Remove all cached data',
-                onTap: () {
-                  // TODO: Implement clear data
+                  ref.read(portfolioProvider.notifier).refresh();
+                  ref.invalidate(recentTradesProvider);
+                  ref.invalidate(allSignalsProvider);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Refreshing data...')),
+                  );
                 },
               ),
             ],
@@ -79,7 +73,7 @@ class SettingsScreen extends StatelessWidget {
           _SettingsSection(
             title: 'About',
             children: [
-              _SettingsTile(
+              const _SettingsTile(
                 icon: Icons.info_outline,
                 title: 'Version',
                 subtitle: '1.0.0',
@@ -89,9 +83,7 @@ class SettingsScreen extends StatelessWidget {
                 icon: Icons.code,
                 title: 'MSA Backend',
                 subtitle: 'github.com/jaisw7/msa',
-                onTap: () {
-                  // TODO: Open link
-                },
+                onTap: () {},
               ),
             ],
           ),
@@ -99,21 +91,123 @@ class SettingsScreen extends StatelessWidget {
       ),
     );
   }
+
+  Future<void> _showAlpacaConfigDialog(BuildContext context, AlpacaConfig? existing) async {
+    final endpointController = TextEditingController(
+      text: existing?.endpoint ?? 'https://paper-api.alpaca.markets/v2',
+    );
+    final apiKeyController = TextEditingController(text: existing?.apiKey ?? '');
+    final apiSecretController = TextEditingController(text: existing?.apiSecret ?? '');
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Alpaca API Configuration'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: endpointController,
+                decoration: const InputDecoration(
+                  labelText: 'API Endpoint',
+                  hintText: 'https://paper-api.alpaca.markets/v2',
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: apiKeyController,
+                decoration: const InputDecoration(
+                  labelText: 'API Key',
+                  hintText: 'PKXXXXXXXXXXXXXXXX',
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: apiSecretController,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: 'API Secret',
+                  hintText: '••••••••••••••••',
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          if (existing != null)
+            TextButton(
+              onPressed: () async {
+                await AlpacaConfig.clear();
+                if (context.mounted) Navigator.pop(context, true);
+              },
+              child: const Text('Clear', style: TextStyle(color: Colors.red)),
+            ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              if (apiKeyController.text.isNotEmpty && apiSecretController.text.isNotEmpty) {
+                await AlpacaConfig.save(
+                  endpoint: endpointController.text,
+                  apiKey: apiKeyController.text,
+                  apiSecret: apiSecretController.text,
+                );
+                if (context.mounted) Navigator.pop(context, true);
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    if (result == true && mounted) {
+      ref.invalidate(alpacaConfigProvider);
+      ref.invalidate(portfolioProvider);
+    }
+  }
+}
+
+class _AlpacaConfigTile extends StatelessWidget {
+  const _AlpacaConfigTile({
+    required this.isConfigured,
+    required this.isPaper,
+    required this.onTap,
+  });
+
+  final bool isConfigured;
+  final bool isPaper;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return _SettingsTile(
+      icon: Icons.key_outlined,
+      title: 'Alpaca API Key',
+      subtitle: isConfigured
+          ? 'Configured (${isPaper ? "Paper" : "Live"})'
+          : 'Not configured - tap to add',
+      trailing: isConfigured
+          ? Icon(Icons.check_circle, color: Colors.green[400], size: 20)
+          : Icon(Icons.warning, color: Colors.orange[400], size: 20),
+      onTap: onTap,
+    );
+  }
 }
 
 class _SettingsSection extends StatelessWidget {
-  const _SettingsSection({
-    required this.title,
-    required this.children,
-  });
+  const _SettingsSection({required this.title, required this.children});
 
   final String title;
   final List<Widget> children;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -125,7 +219,7 @@ class _SettingsSection extends StatelessWidget {
           child: Text(
             title.toUpperCase(),
             style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurface.withOpacity(0.5),
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
               fontWeight: FontWeight.w600,
               letterSpacing: 1,
             ),
@@ -136,9 +230,7 @@ class _SettingsSection extends StatelessWidget {
             color: theme.cardColor,
             borderRadius: BorderRadius.circular(AppDimensions.radiusM),
           ),
-          child: Column(
-            children: children,
-          ),
+          child: Column(children: children),
         ),
       ],
     );
@@ -151,12 +243,14 @@ class _SettingsTile extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.onTap,
+    this.trailing,
   });
 
   final IconData icon;
   final String title;
   final String subtitle;
   final VoidCallback? onTap;
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -169,35 +263,26 @@ class _SettingsTile extends StatelessWidget {
         padding: const EdgeInsets.all(AppDimensions.paddingM),
         child: Row(
           children: [
-            Icon(
-              icon,
-              size: 24,
-              color: theme.colorScheme.onSurface.withOpacity(0.7),
-            ),
+            Icon(icon, size: 24, color: theme.colorScheme.onSurface.withValues(alpha: 0.7)),
             const SizedBox(width: AppDimensions.paddingM),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    title,
-                    style: theme.textTheme.bodyLarge,
-                  ),
+                  Text(title, style: theme.textTheme.bodyLarge),
                   const SizedBox(height: 2),
                   Text(
                     subtitle,
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurface.withOpacity(0.5),
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
                     ),
                   ),
                 ],
               ),
             ),
-            if (onTap != null)
-              Icon(
-                Icons.chevron_right,
-                color: theme.colorScheme.onSurface.withOpacity(0.3),
-              ),
+            if (trailing != null) trailing!,
+            if (onTap != null && trailing == null)
+              Icon(Icons.chevron_right, color: theme.colorScheme.onSurface.withValues(alpha: 0.3)),
           ],
         ),
       ),

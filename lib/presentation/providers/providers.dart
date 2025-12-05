@@ -11,18 +11,54 @@ import '../../data/models/performance.dart';
 import '../../data/repositories/trading_repository.dart';
 import '../../data/repositories/market_data_repository.dart';
 import '../../data/repositories/performance_repository.dart';
+import '../../services/alpaca/alpaca_config.dart';
+import '../../services/alpaca/alpaca_client.dart';
+import '../../services/alpaca/alpaca_trading_repository.dart';
+import '../../services/alpaca/alpaca_market_data_repository.dart';
+
+// ============================================================================
+// Alpaca Config Provider
+// ============================================================================
+
+/// Alpaca configuration provider (async).
+final alpacaConfigProvider = FutureProvider<AlpacaConfig?>((ref) async {
+  return AlpacaConfig.load();
+});
+
+/// Alpaca client provider.
+final alpacaClientProvider = Provider<AlpacaClient?>((ref) {
+  final configAsync = ref.watch(alpacaConfigProvider);
+  return configAsync.valueOrNull != null
+      ? AlpacaClient(configAsync.valueOrNull!)
+      : null;
+});
+
+/// Alpaca account provider.
+final alpacaAccountProvider = FutureProvider<AlpacaAccount?>((ref) async {
+  final client = ref.watch(alpacaClientProvider);
+  if (client == null) return null;
+  return client.getAccount();
+});
 
 // ============================================================================
 // Repository Providers
 // ============================================================================
 
-/// Trading repository provider.
+/// Trading repository provider (uses Alpaca if available, else SQLite).
 final tradingRepositoryProvider = Provider<TradingRepository>((ref) {
+  final client = ref.watch(alpacaClientProvider);
+  if (client != null) {
+    return AlpacaTradingRepository(client);
+  }
   return SqliteTradingRepository();
 });
 
-/// Market data repository provider (using mock for now).
+/// Market data repository provider (uses Alpaca if available, else Mock).
 final marketDataRepositoryProvider = Provider<MarketDataRepository>((ref) {
+  final client = ref.watch(alpacaClientProvider);
+  if (client != null) {
+    return AlpacaMarketDataRepository(client);
+  }
   return MockMarketDataRepository();
 });
 
@@ -91,15 +127,19 @@ class PortfolioNotifier extends StateNotifier<PortfolioState> {
     try {
       final positions = await _tradingRepo.getAllPositions();
 
-      // Update current prices
+      // Update current prices if using SQLite (Alpaca positions already have current price)
       final updatedPositions = <Position>[];
       for (final position in positions) {
-        final quote = await _marketDataRepo.getLatestQuote(position.ticker);
-        if (quote != null) {
-          updatedPositions.add(position.copyWith(
-            currentPrice: quote.close,
-            lastUpdated: DateTime.now(),
-          ));
+        if (position.currentPrice == 0) {
+          final quote = await _marketDataRepo.getLatestQuote(position.ticker);
+          if (quote != null) {
+            updatedPositions.add(position.copyWith(
+              currentPrice: quote.close,
+              lastUpdated: DateTime.now(),
+            ));
+          } else {
+            updatedPositions.add(position);
+          }
         } else {
           updatedPositions.add(position);
         }
