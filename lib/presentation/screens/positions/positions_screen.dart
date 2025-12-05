@@ -138,62 +138,64 @@ class _PositionCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(AppDimensions.radiusM),
         ),
         child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(position.ticker, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
-                const SizedBox(height: 2),
-                Text(
-                  '${position.shares} shares @ ${currencyFormat.format(position.avgCost)}',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                currencyFormat.format(position.totalValue),
-                style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 2),
-              Row(
-                mainAxisSize: MainAxisSize.min,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  Text(position.ticker, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 2),
                   Text(
-                    '${position.pnl >= 0 ? '+' : ''}${currencyFormat.format(position.pnl)}',
+                    '${position.shares} shares @ ${currencyFormat.format(position.avgCost)}',
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: position.isProfitable ? AppColors.profit : AppColors.loss,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: (position.isProfitable ? AppColors.profit : AppColors.loss).withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      '${position.pnlPercent >= 0 ? '+' : ''}${position.pnlPercent.toStringAsFixed(2)}%',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: position.isProfitable ? AppColors.profit : AppColors.loss,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 11,
-                      ),
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                     ),
                   ),
                 ],
               ),
-            ],
-          ),
-        ],
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  currencyFormat.format(position.totalValue),
+                  style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 2),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '${position.pnl >= 0 ? '+' : ''}${currencyFormat.format(position.pnl)}',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: position.isProfitable ? AppColors.profit : AppColors.loss,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: (position.isProfitable ? AppColors.profit : AppColors.loss).withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        '${position.pnlPercent >= 0 ? '+' : ''}${position.pnlPercent.toStringAsFixed(2)}%',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: position.isProfitable ? AppColors.profit : AppColors.loss,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
 }
+
