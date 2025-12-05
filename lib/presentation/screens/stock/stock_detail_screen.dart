@@ -10,7 +10,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_dimensions.dart';
 import '../../../data/models/market_data.dart';
 import '../../../data/models/alpha_signal.dart';
-import '../../../services/market_data_service.dart';
+import '../../../services/yahoo/yahoo_finance_repository.dart';
 import '../../providers/providers.dart';
 
 /// Time range options for the chart.
@@ -31,8 +31,9 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
   List<MarketData> _chartData = [];
   bool _isLoading = true;
   MarketData? _latestQuote;
+  String? _error;
 
-  final _marketDataService = MarketDataService();
+  final _yahooRepo = YahooFinanceRepository();
 
   @override
   void initState() {
@@ -41,10 +42,16 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
   }
 
   Future<void> _loadData() async {
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
 
     try {
-      final data = await _marketDataService.getData(widget.ticker, days: 365);
+      debugPrint('StockDetailScreen: Loading data for ${widget.ticker}');
+      final data = await _yahooRepo.getHistoricalData(widget.ticker, days: 365);
+      debugPrint('StockDetailScreen: Got ${data.length} bars');
+
       final quote = data.isNotEmpty ? data.last : null;
 
       setState(() {
@@ -53,7 +60,11 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
         _isLoading = false;
       });
     } catch (e) {
-      setState(() => _isLoading = false);
+      debugPrint('StockDetailScreen: Error loading data: $e');
+      setState(() {
+        _isLoading = false;
+        _error = e.toString();
+      });
     }
   }
 
