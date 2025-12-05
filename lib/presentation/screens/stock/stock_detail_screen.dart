@@ -10,6 +10,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_dimensions.dart';
 import '../../../data/models/market_data.dart';
 import '../../../data/models/alpha_signal.dart';
+import '../../../services/market_data_service.dart';
 import '../../../services/yahoo/yahoo_finance_repository.dart';
 import '../../providers/providers.dart';
 
@@ -27,13 +28,10 @@ class StockDetailScreen extends ConsumerStatefulWidget {
 }
 
 class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
-  TimeRange _selectedRange = TimeRange.month;
+  TimeRange _selectedRange = TimeRange.day;  // Default to 1D
   List<MarketData> _chartData = [];
   bool _isLoading = true;
   MarketData? _latestQuote;
-  String? _error;
-
-  final _yahooRepo = YahooFinanceRepository();
 
   @override
   void initState() {
@@ -41,16 +39,33 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
     _loadData();
   }
 
+  /// Get appropriate interval and days for the selected time range.
+  (DataInterval, int) _getIntervalForRange() {
+    return switch (_selectedRange) {
+      TimeRange.day => (DataInterval.oneMinute, 1),
+      TimeRange.week => (DataInterval.oneMinute, 7),
+      TimeRange.month => (DataInterval.oneHour, 30),
+      TimeRange.threeMonth => (DataInterval.oneHour, 90),
+      TimeRange.year => (DataInterval.oneDay, 365),
+      TimeRange.all => (DataInterval.oneDay, 365 * 5),
+    };
+  }
+
   Future<void> _loadData() async {
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
+    setState(() => _isLoading = true);
 
     try {
-      debugPrint('StockDetailScreen: Loading data for ${widget.ticker}');
-      final data = await _yahooRepo.getHistoricalData(widget.ticker, days: 365);
-      debugPrint('StockDetailScreen: Got ${data.length} bars');
+      final (interval, days) = _getIntervalForRange();
+
+      // ignore: avoid_print
+      print('StockDetailScreen: Loading ${widget.ticker} (${interval.value}, ${days}d)');
+
+      // Create service with appropriate interval
+      final service = MarketDataService(interval: interval);
+      final data = await service.getData(widget.ticker, days: days);
+
+      // ignore: avoid_print
+      print('StockDetailScreen: Got ${data.length} bars');
 
       final quote = data.isNotEmpty ? data.last : null;
 
@@ -60,20 +75,27 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
         _isLoading = false;
       });
     } catch (e) {
-      debugPrint('StockDetailScreen: Error loading data: $e');
-      setState(() {
-        _isLoading = false;
-        _error = e.toString();
-      });
+      // ignore: avoid_print
+      print('StockDetailScreen: Error loading data: $e');
+      setState(() => _isLoading = false);
     }
   }
 
   List<MarketData> _getFilteredData() {
     if (_chartData.isEmpty) return [];
 
+    // For 1-minute data, 1 trading day = ~390 bars (6.5 hours * 60 min)
+    // Using count-based filtering for 1D to avoid empty charts on weekends
+    if (_selectedRange == TimeRange.day) {
+      final dayBars = 400; // ~1 trading day of 1m data
+      if (_chartData.length <= dayBars) return _chartData;
+      return _chartData.sublist(_chartData.length - dayBars);
+    }
+
     final now = DateTime.now();
+    // Note: 1m data only has 7 days max, so 1M/3M/1Y will show all available data
     final cutoff = switch (_selectedRange) {
-      TimeRange.day => now.subtract(const Duration(days: 1)),
+      TimeRange.day => now.subtract(const Duration(days: 1)), // Won't reach here
       TimeRange.week => now.subtract(const Duration(days: 7)),
       TimeRange.month => now.subtract(const Duration(days: 30)),
       TimeRange.threeMonth => now.subtract(const Duration(days: 90)),
@@ -81,7 +103,9 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
       TimeRange.all => DateTime(1970),
     };
 
-    return _chartData.where((d) => d.timestamp.isAfter(cutoff)).toList();
+    final filtered = _chartData.where((d) => d.timestamp.isAfter(cutoff)).toList();
+    // If filtered is empty but we have data, show all (1m data may not cover full range)
+    return filtered.isEmpty ? _chartData : filtered;
   }
 
   @override
@@ -109,7 +133,12 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
                   _ChartSection(
                     data: _getFilteredData(),
                     selectedRange: _selectedRange,
-                    onRangeChanged: (range) => setState(() => _selectedRange = range),
+                    onRangeChanged: (range) {
+                      if (range != _selectedRange) {
+                        setState(() => _selectedRange = range);
+                        _loadData();  // Reload with appropriate interval
+                      }
+                    },
                   ),
                   const SizedBox(height: AppDimensions.paddingL),
                   _StatsSection(quote: _latestQuote, chartData: _chartData),

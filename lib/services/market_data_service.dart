@@ -1,24 +1,36 @@
 /// Market data ingestion and caching service.
 library;
 
-import 'package:sqflite/sqflite.dart';
+import 'package:flutter/foundation.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../../data/datasources/local/database.dart';
 import '../../data/models/market_data.dart';
 import 'yahoo/yahoo_finance_repository.dart';
 
 /// Service for ingesting and caching market data locally.
+/// On web, data is fetched fresh each time (no caching).
 class MarketDataService {
-  MarketDataService({YahooFinanceRepository? yahooRepo})
-      : _yahooRepo = yahooRepo ?? YahooFinanceRepository();
+  MarketDataService({
+    YahooFinanceRepository? yahooRepo,
+    DataInterval interval = DataInterval.oneMinute,
+  }) : _yahooRepo = yahooRepo ?? YahooFinanceRepository(interval: interval),
+       _interval = interval;
 
   final YahooFinanceRepository _yahooRepo;
+  final DataInterval _interval;
 
-  /// Get cached data for a ticker, fetching from API if needed.
-  Future<List<MarketData>> getData(String ticker, {int days = 365}) async {
+  /// Get data for a ticker - cached on native, fresh on web.
+  Future<List<MarketData>> getData(String ticker, {int days = 7}) async {
+    // On web, just fetch directly (no SQLite support)
+    if (kIsWeb) {
+      return _yahooRepo.getHistoricalData(ticker, days: days);
+    }
+
+    // On native platforms, use SQLite cache
     final db = await AppDatabase.database;
 
-    // Check what we have cached
+    // Check what we have cached for this interval
     final latestCached = await _getLatestTimestamp(db, ticker);
     final now = DateTime.now();
 
@@ -26,11 +38,10 @@ class MarketDataService {
       // No cached data - fetch full history
       await ingestHistorical(ticker, days: days);
     } else {
-      // Check if we need to update
-      final hoursSinceUpdate = now.difference(latestCached).inHours;
-      if (hoursSinceUpdate > 1) {
-        // Fetch incremental update
-        await ingestLatest(ticker);
+      // Check if we need to update (more than 5 minutes old for 1m data)
+      final minutesSinceUpdate = now.difference(latestCached).inMinutes;
+      if (minutesSinceUpdate > 5) {
+        await ingestHistorical(ticker, days: days);
       }
     }
 
@@ -39,7 +50,9 @@ class MarketDataService {
   }
 
   /// Ingest historical data for a ticker.
-  Future<int> ingestHistorical(String ticker, {int days = 365}) async {
+  Future<int> ingestHistorical(String ticker, {int days = 7}) async {
+    if (kIsWeb) return 0;
+
     final bars = await _yahooRepo.getHistoricalData(ticker, days: days);
     if (bars.isEmpty) return 0;
 
@@ -54,6 +67,7 @@ class MarketDataService {
         {
           'ticker': bar.ticker,
           'timestamp': bar.timestamp.millisecondsSinceEpoch,
+          'interval': _interval.value,
           'open': bar.open,
           'high': bar.high,
           'low': bar.low,
@@ -66,29 +80,9 @@ class MarketDataService {
     }
 
     await batch.commit(noResult: true);
+    // ignore: avoid_print
+    print('MarketDataService: Cached $count bars for $ticker (${_interval.value})');
     return count;
-  }
-
-  /// Ingest latest data (incremental update).
-  Future<int> ingestLatest(String ticker) async {
-    final quote = await _yahooRepo.getLatestQuote(ticker);
-    if (quote == null) return 0;
-
-    final db = await AppDatabase.database;
-    await db.insert(
-      'market_data',
-      {
-        'ticker': quote.ticker,
-        'timestamp': quote.timestamp.millisecondsSinceEpoch,
-        'open': quote.open,
-        'high': quote.high,
-        'low': quote.low,
-        'close': quote.close,
-        'volume': quote.volume,
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
-    return 1;
   }
 
   /// Get latest cached timestamp for a ticker.
@@ -96,8 +90,8 @@ class MarketDataService {
     final result = await db.query(
       'market_data',
       columns: ['MAX(timestamp) as latest'],
-      where: 'ticker = ?',
-      whereArgs: [ticker],
+      where: 'ticker = ? AND interval = ?',
+      whereArgs: [ticker, _interval.value],
     );
 
     if (result.isEmpty || result.first['latest'] == null) return null;
@@ -105,35 +99,13 @@ class MarketDataService {
   }
 
   /// Get cached data from database.
-  Future<List<MarketData>> _getCachedData(Database db, String ticker, {int days = 365}) async {
+  Future<List<MarketData>> _getCachedData(Database db, String ticker, {int days = 7}) async {
     final cutoff = DateTime.now().subtract(Duration(days: days));
 
     final result = await db.query(
       'market_data',
-      where: 'ticker = ? AND timestamp >= ?',
-      whereArgs: [ticker, cutoff.millisecondsSinceEpoch],
-      orderBy: 'timestamp ASC',
-    );
-
-    return result.map((row) => MarketData(
-      ticker: row['ticker'] as String,
-      timestamp: DateTime.fromMillisecondsSinceEpoch(row['timestamp'] as int),
-      open: row['open'] as double,
-      high: row['high'] as double,
-      low: row['low'] as double,
-      close: row['close'] as double,
-      volume: row['volume'] as int,
-    )).toList();
-  }
-
-  /// Get data for a specific time range.
-  Future<List<MarketData>> getDataRange(String ticker, DateTime start, DateTime end) async {
-    final db = await AppDatabase.database;
-
-    final result = await db.query(
-      'market_data',
-      where: 'ticker = ? AND timestamp >= ? AND timestamp <= ?',
-      whereArgs: [ticker, start.millisecondsSinceEpoch, end.millisecondsSinceEpoch],
+      where: 'ticker = ? AND interval = ? AND timestamp >= ?',
+      whereArgs: [ticker, _interval.value, cutoff.millisecondsSinceEpoch],
       orderBy: 'timestamp ASC',
     );
 
@@ -150,6 +122,8 @@ class MarketDataService {
 
   /// Clear cached data for a ticker (or all if null).
   Future<void> clearCache({String? ticker}) async {
+    if (kIsWeb) return;
+
     final db = await AppDatabase.database;
     if (ticker != null) {
       await db.delete('market_data', where: 'ticker = ?', whereArgs: [ticker]);

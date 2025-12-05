@@ -1,8 +1,8 @@
 /// SQLite database setup and operations.
 library;
 
-import 'package:path/path.dart';
-import 'package:sqflite/sqflite.dart';
+import 'package:flutter/foundation.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 /// Database helper for local storage.
 class AppDatabase {
@@ -10,9 +10,32 @@ class AppDatabase {
   static const int _dbVersion = 1;
 
   static Database? _database;
+  static bool _ffiInitialized = false;
+
+  /// Check if we're on a platform that supports SQLite.
+  static bool get isSupported => !kIsWeb;
+
+  /// Initialize FFI for desktop platforms.
+  static void _initFfi() {
+    if (_ffiInitialized || kIsWeb) return;
+
+    // Only use FFI on desktop (not mobile or web)
+    if (defaultTargetPlatform == TargetPlatform.linux ||
+        defaultTargetPlatform == TargetPlatform.windows ||
+        defaultTargetPlatform == TargetPlatform.macOS) {
+      sqfliteFfiInit();
+      databaseFactory = databaseFactoryFfi;
+    }
+    _ffiInitialized = true;
+  }
 
   /// Get database instance (singleton).
   static Future<Database> get database async {
+    if (!isSupported) {
+      throw UnsupportedError('SQLite not supported on web');
+    }
+
+    _initFfi();
     if (_database != null) return _database!;
     _database = await _initDatabase();
     return _database!;
@@ -21,7 +44,10 @@ class AppDatabase {
   /// Initialize the database.
   static Future<Database> _initDatabase() async {
     final dbPath = await getDatabasesPath();
-    final path = join(dbPath, _dbName);
+    final path = '$dbPath/$_dbName';
+
+    // ignore: avoid_print
+    print('AppDatabase: Opening database at $path');
 
     return openDatabase(
       path,
@@ -33,6 +59,9 @@ class AppDatabase {
 
   /// Create tables on first run.
   static Future<void> _onCreate(Database db, int version) async {
+    // ignore: avoid_print
+    print('AppDatabase: Creating tables (version $version)');
+
     await db.execute('''
       CREATE TABLE positions (
         ticker TEXT PRIMARY KEY,
@@ -60,12 +89,13 @@ class AppDatabase {
       CREATE TABLE market_data (
         ticker TEXT NOT NULL,
         timestamp INTEGER NOT NULL,
+        interval TEXT NOT NULL DEFAULT '1m',
         open REAL NOT NULL,
         high REAL NOT NULL,
         low REAL NOT NULL,
         close REAL NOT NULL,
         volume INTEGER NOT NULL,
-        PRIMARY KEY (ticker, timestamp)
+        PRIMARY KEY (ticker, timestamp, interval)
       )
     ''');
 
@@ -92,6 +122,9 @@ class AppDatabase {
     await db.execute('CREATE INDEX idx_trades_ticker ON trades(ticker)');
     await db.execute('CREATE INDEX idx_trades_timestamp ON trades(timestamp)');
     await db.execute('CREATE INDEX idx_market_data_ticker ON market_data(ticker)');
+
+    // ignore: avoid_print
+    print('AppDatabase: Tables created successfully');
   }
 
   /// Handle database upgrades.
