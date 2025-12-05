@@ -216,6 +216,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "4.1.2"
+  idb_shim:
+    dependency: transitive
+    description:
+      name: idb_shim
+      sha256: "071f3b05032fa62e60ca15db9939f8afbaf403b37e67747ac88f858c3e999228"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.6.7+1"
   intl:
     dependency: "direct main"
     description:
@@ -384,6 +392,22 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.6.1"
+  sembast:
+    dependency: transitive
+    description:
+      name: sembast
+      sha256: c8063c3146c3c8d5f5b04230de7682c768440a575fbda2634f14d22f263197c3
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.8.5+2"
+  sembast_web:
+    dependency: transitive
+    description:
+      name: sembast_web
+      sha256: "0362c7c241ad6546d3e27b4cfffaae505e5a9661e238dbcdd176756cc960fe7a"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.4.2"
   sky_engine:
     dependency: transitive
     description: flutter
@@ -541,6 +565,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.1.0"
+  yahoo_finance_data_reader:
+    dependency: "direct main"
+    description:
+      name: yahoo_finance_data_reader
+      sha256: d114c4dcdf2632f265d17a560a67cde00aa64061c84f9827f1a3959c74d84b0f
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.0.13"
 sdks:
   dart: ">=3.10.3 <4.0.0"
   flutter: ">=3.35.0"

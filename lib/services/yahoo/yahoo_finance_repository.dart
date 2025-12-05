@@ -1,7 +1,7 @@
-/// Yahoo Finance market data repository.
+/// Yahoo Finance market data repository using official package.
 library;
 
-import 'package:dio/dio.dart';
+import 'package:yahoo_finance_data_reader/yahoo_finance_data_reader.dart';
 
 import '../../data/models/alpha_signal.dart';
 import '../../data/models/market_data.dart';
@@ -9,49 +9,27 @@ import '../../data/repositories/market_data_repository.dart';
 
 /// Market data repository using Yahoo Finance (no API key required).
 class YahooFinanceRepository implements MarketDataRepository {
-  YahooFinanceRepository() {
-    _dio = Dio(BaseOptions(
-      connectTimeout: const Duration(seconds: 10),
-      receiveTimeout: const Duration(seconds: 10),
-    ));
-  }
-
-  late final Dio _dio;
-
-  // Yahoo Finance query API endpoint
-  static const _baseUrl = 'https://query1.finance.yahoo.com/v8/finance/chart';
+  final _reader = YahooFinanceDailyReader();
 
   @override
   Future<MarketData?> getLatestQuote(String ticker) async {
     try {
-      final response = await _dio.get(
-        '$_baseUrl/$ticker',
-        queryParameters: {
-          'interval': '1d',
-          'range': '1d',
-        },
-      );
+      final response = await _reader.getDailyDTOs(ticker);
 
-      final data = response.data as Map<String, dynamic>;
-      final result = data['chart']?['result']?[0] as Map<String, dynamic>?;
-      if (result == null) return null;
+      if (response.candlesData.isEmpty) return null;
 
-      final meta = result['meta'] as Map<String, dynamic>;
-      final quote = result['indicators']?['quote']?[0] as Map<String, dynamic>?;
-
-      final price = meta['regularMarketPrice'] as num?;
-      if (price == null) return null;
-
+      final candle = response.candlesData.last;
       return MarketData(
         ticker: ticker,
-        timestamp: DateTime.now(),
-        open: (quote?['open']?.last as num?)?.toDouble() ?? price.toDouble(),
-        high: (quote?['high']?.last as num?)?.toDouble() ?? price.toDouble(),
-        low: (quote?['low']?.last as num?)?.toDouble() ?? price.toDouble(),
-        close: price.toDouble(),
-        volume: (quote?['volume']?.last as num?)?.toInt() ?? 0,
+        timestamp: candle.date,
+        open: candle.open,
+        high: candle.high,
+        low: candle.low,
+        close: candle.close,
+        volume: candle.volume.toInt(),
       );
     } catch (e) {
+      debugPrint('YahooFinance getLatestQuote error: $e');
       return null;
     }
   }
@@ -59,46 +37,24 @@ class YahooFinanceRepository implements MarketDataRepository {
   @override
   Future<List<MarketData>> getHistoricalData(String ticker, {int days = 100}) async {
     try {
-      final response = await _dio.get(
-        '$_baseUrl/$ticker',
-        queryParameters: {
-          'interval': '1d',
-          'range': '${days}d',
-        },
-      );
+      final response = await _reader.getDailyDTOs(ticker);
+      final now = DateTime.now();
+      final cutoff = now.subtract(Duration(days: days));
 
-      final data = response.data as Map<String, dynamic>;
-      final result = data['chart']?['result']?[0] as Map<String, dynamic>?;
-      if (result == null) return [];
-
-      final timestamps = (result['timestamp'] as List<dynamic>?)?.cast<int>() ?? [];
-      final quote = result['indicators']?['quote']?[0] as Map<String, dynamic>?;
-      if (quote == null) return [];
-
-      final opens = (quote['open'] as List<dynamic>?)?.cast<num?>() ?? [];
-      final highs = (quote['high'] as List<dynamic>?)?.cast<num?>() ?? [];
-      final lows = (quote['low'] as List<dynamic>?)?.cast<num?>() ?? [];
-      final closes = (quote['close'] as List<dynamic>?)?.cast<num?>() ?? [];
-      final volumes = (quote['volume'] as List<dynamic>?)?.cast<num?>() ?? [];
-
-      final bars = <MarketData>[];
-      for (var i = 0; i < timestamps.length; i++) {
-        final close = closes.length > i ? closes[i]?.toDouble() : null;
-        if (close == null) continue;
-
-        bars.add(MarketData(
-          ticker: ticker,
-          timestamp: DateTime.fromMillisecondsSinceEpoch(timestamps[i] * 1000),
-          open: opens.length > i ? opens[i]?.toDouble() ?? close : close,
-          high: highs.length > i ? highs[i]?.toDouble() ?? close : close,
-          low: lows.length > i ? lows[i]?.toDouble() ?? close : close,
-          close: close,
-          volume: volumes.length > i ? volumes[i]?.toInt() ?? 0 : 0,
-        ));
-      }
-
-      return bars;
+      return response.candlesData
+          .where((c) => c.date.isAfter(cutoff))
+          .map((candle) => MarketData(
+                ticker: ticker,
+                timestamp: candle.date,
+                open: candle.open,
+                high: candle.high,
+                low: candle.low,
+                close: candle.close,
+                volume: candle.volume.toInt(),
+              ))
+          .toList();
     } catch (e) {
+      debugPrint('YahooFinance getHistoricalData error: $e');
       return [];
     }
   }
@@ -168,4 +124,9 @@ class YahooFinanceRepository implements MarketDataRepository {
 
     return signals;
   }
+}
+
+void debugPrint(String message) {
+  // ignore: avoid_print
+  print(message);
 }
