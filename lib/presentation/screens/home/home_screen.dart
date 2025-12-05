@@ -4,10 +4,12 @@ library;
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_dimensions.dart';
+import '../../../core/router/app_router.dart';
 import '../../../data/models/alpha_signal.dart';
 import '../../../data/models/position.dart';
 import '../../providers/providers.dart';
@@ -261,43 +263,47 @@ class _PositionTile extends StatelessWidget {
     final theme = Theme.of(context);
     final currencyFormat = NumberFormat.currency(symbol: '\$');
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: AppDimensions.paddingS),
-      padding: const EdgeInsets.all(AppDimensions.paddingM),
-      decoration: BoxDecoration(
-        color: theme.cardColor,
-        borderRadius: BorderRadius.circular(AppDimensions.radiusM),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+    return InkWell(
+      onTap: () => context.push(AppRoutes.stockDetail(position.ticker)),
+      borderRadius: BorderRadius.circular(AppDimensions.radiusM),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: AppDimensions.paddingS),
+        padding: const EdgeInsets.all(AppDimensions.paddingM),
+        decoration: BoxDecoration(
+          color: theme.cardColor,
+          borderRadius: BorderRadius.circular(AppDimensions.radiusM),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(position.ticker, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${position.shares} shares',
+                    style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurface.withValues(alpha: 0.6)),
+                  ),
+                ],
+              ),
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Text(position.ticker, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+                Text(currencyFormat.format(position.currentPrice), style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
                 const SizedBox(height: 2),
                 Text(
-                  '${position.shares} shares',
-                  style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurface.withValues(alpha: 0.6)),
+                  '${position.pnlPercent >= 0 ? '+' : ''}${position.pnlPercent.toStringAsFixed(2)}%',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: position.isProfitable ? AppColors.profit : AppColors.loss,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ],
             ),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(currencyFormat.format(position.currentPrice), style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
-              const SizedBox(height: 2),
-              Text(
-                '${position.pnlPercent >= 0 ? '+' : ''}${position.pnlPercent.toStringAsFixed(2)}%',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: position.isProfitable ? AppColors.profit : AppColors.loss,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

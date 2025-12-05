@@ -3,10 +3,12 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_dimensions.dart';
+import '../../../core/router/app_router.dart';
 import '../../../data/models/position.dart';
 import '../../providers/providers.dart';
 
@@ -125,14 +127,17 @@ class _PositionCard extends StatelessWidget {
     final theme = Theme.of(context);
     final currencyFormat = NumberFormat.currency(symbol: '\$');
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: AppDimensions.paddingM),
-      padding: const EdgeInsets.all(AppDimensions.paddingM),
-      decoration: BoxDecoration(
-        color: theme.cardColor,
-        borderRadius: BorderRadius.circular(AppDimensions.radiusM),
-      ),
-      child: Row(
+    return InkWell(
+      onTap: () => context.push(AppRoutes.stockDetail(position.ticker)),
+      borderRadius: BorderRadius.circular(AppDimensions.radiusM),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: AppDimensions.paddingM),
+        padding: const EdgeInsets.all(AppDimensions.paddingM),
+        decoration: BoxDecoration(
+          color: theme.cardColor,
+          borderRadius: BorderRadius.circular(AppDimensions.radiusM),
+        ),
+        child: Row(
         children: [
           Expanded(
             child: Column(
