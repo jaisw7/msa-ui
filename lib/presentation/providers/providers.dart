@@ -15,6 +15,7 @@ import '../../services/alpaca/alpaca_config.dart';
 import '../../services/alpaca/alpaca_client.dart';
 import '../../services/alpaca/alpaca_trading_repository.dart';
 import '../../services/alpaca/alpaca_market_data_repository.dart';
+import '../../services/yahoo/yahoo_finance_repository.dart';
 
 // ============================================================================
 // Alpaca Config Provider
@@ -53,13 +54,15 @@ final tradingRepositoryProvider = Provider<TradingRepository>((ref) {
   return SqliteTradingRepository();
 });
 
-/// Market data repository provider (uses Alpaca if available, else Mock).
+/// Market data repository provider.
+/// Priority: Alpaca (if configured) > Yahoo Finance (default, free).
 final marketDataRepositoryProvider = Provider<MarketDataRepository>((ref) {
   final client = ref.watch(alpacaClientProvider);
   if (client != null) {
     return AlpacaMarketDataRepository(client);
   }
-  return MockMarketDataRepository();
+  // Use Yahoo Finance as default - no API key required
+  return YahooFinanceRepository();
 });
 
 /// Performance repository provider (using mock for now).

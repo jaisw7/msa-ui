@@ -184,7 +184,6 @@ class _AlpacaConfigTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
 
     return _SettingsTile(
       icon: Icons.key_outlined,
