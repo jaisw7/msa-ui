@@ -2,86 +2,59 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_dimensions.dart';
 import '../../../data/models/position.dart';
+import '../../providers/providers.dart';
 
 /// Positions screen displaying all current holdings.
-class PositionsScreen extends StatelessWidget {
+class PositionsScreen extends ConsumerWidget {
   const PositionsScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    // Mock positions
-    final positions = [
-      Position(
-        ticker: 'AAPL',
-        shares: 50,
-        avgCost: 170.50,
-        currentPrice: 175.23,
-        lastUpdated: DateTime.now(),
-      ),
-      Position(
-        ticker: 'MSFT',
-        shares: 20,
-        avgCost: 382.00,
-        currentPrice: 380.45,
-        lastUpdated: DateTime.now(),
-      ),
-      Position(
-        ticker: 'GOOGL',
-        shares: 15,
-        avgCost: 140.00,
-        currentPrice: 145.60,
-        lastUpdated: DateTime.now(),
-      ),
-      Position(
-        ticker: 'NVDA',
-        shares: 10,
-        avgCost: 480.00,
-        currentPrice: 502.30,
-        lastUpdated: DateTime.now(),
-      ),
-      Position(
-        ticker: 'TSLA',
-        shares: 25,
-        avgCost: 242.00,
-        currentPrice: 238.50,
-        lastUpdated: DateTime.now(),
-      ),
-    ];
+  Widget build(BuildContext context, WidgetRef ref) {
+    final portfolioState = ref.watch(portfolioProvider);
+
+    // Use demo data if no positions
+    final positions = portfolioState.positions.isNotEmpty
+        ? portfolioState.positions
+        : [
+            Position(ticker: 'AAPL', shares: 50, avgCost: 170.50, currentPrice: 175.23, lastUpdated: DateTime.now()),
+            Position(ticker: 'MSFT', shares: 20, avgCost: 382.00, currentPrice: 380.45, lastUpdated: DateTime.now()),
+            Position(ticker: 'GOOGL', shares: 15, avgCost: 140.00, currentPrice: 145.60, lastUpdated: DateTime.now()),
+            Position(ticker: 'NVDA', shares: 10, avgCost: 480.00, currentPrice: 502.30, lastUpdated: DateTime.now()),
+            Position(ticker: 'TSLA', shares: 25, avgCost: 242.00, currentPrice: 238.50, lastUpdated: DateTime.now()),
+          ];
 
     final totalValue = positions.fold<double>(0, (sum, p) => sum + p.totalValue);
     final totalPnl = positions.fold<double>(0, (sum, p) => sum + p.pnl);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Positions'),
-      ),
+      appBar: AppBar(title: const Text('Positions')),
       body: RefreshIndicator(
         onRefresh: () async {
-          // TODO: Implement refresh
+          ref.read(portfolioProvider.notifier).refresh();
         },
-        child: ListView(
-          padding: const EdgeInsets.all(AppDimensions.paddingM),
-          children: [
-            _SummaryCard(totalValue: totalValue, totalPnl: totalPnl),
-            const SizedBox(height: AppDimensions.paddingL),
-            ...positions.map((p) => _PositionCard(position: p)),
-          ],
-        ),
+        child: portfolioState.isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : ListView(
+                padding: const EdgeInsets.all(AppDimensions.paddingM),
+                children: [
+                  _SummaryCard(totalValue: totalValue, totalPnl: totalPnl),
+                  const SizedBox(height: AppDimensions.paddingL),
+                  ...positions.map((p) => _PositionCard(position: p)),
+                ],
+              ),
       ),
     );
   }
 }
 
 class _SummaryCard extends StatelessWidget {
-  const _SummaryCard({
-    required this.totalValue,
-    required this.totalPnl,
-  });
+  const _SummaryCard({required this.totalValue, required this.totalPnl});
 
   final double totalValue;
   final double totalPnl;
@@ -103,15 +76,13 @@ class _SummaryCard extends StatelessWidget {
           Text(
             'Total Value',
             style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurface.withOpacity(0.7),
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
             ),
           ),
           const SizedBox(height: AppDimensions.paddingXS),
           Text(
             currencyFormat.format(totalValue),
-            style: theme.textTheme.headlineMedium?.copyWith(
-              fontWeight: FontWeight.w700,
-            ),
+            style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: AppDimensions.paddingS),
           Row(
@@ -133,7 +104,7 @@ class _SummaryCard extends StatelessWidget {
               Text(
                 'Unrealized P&L',
                 style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurface.withOpacity(0.5),
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
                 ),
               ),
             ],
@@ -161,77 +132,56 @@ class _PositionCard extends StatelessWidget {
         color: theme.cardColor,
         borderRadius: BorderRadius.circular(AppDimensions.radiusM),
       ),
-      child: Column(
+      child: Row(
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      position.ticker,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '${position.shares} shares @ ${currencyFormat.format(position.avgCost)}',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurface.withOpacity(0.6),
-                      ),
-                    ),
-                  ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(position.ticker, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                const SizedBox(height: 2),
+                Text(
+                  '${position.shares} shares @ ${currencyFormat.format(position.avgCost)}',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                  ),
                 ),
+              ],
+            ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                currencyFormat.format(position.totalValue),
+                style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
               ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
+              const SizedBox(height: 2),
+              Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    currencyFormat.format(position.totalValue),
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
+                    '${position.pnl >= 0 ? '+' : ''}${currencyFormat.format(position.pnl)}',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: position.isProfitable ? AppColors.profit : AppColors.loss,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
-                  const SizedBox(height: 2),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        '${position.pnl >= 0 ? '+' : ''}${currencyFormat.format(position.pnl)}',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: position.isProfitable
-                              ? AppColors.profit
-                              : AppColors.loss,
-                          fontWeight: FontWeight.w500,
-                        ),
+                  const SizedBox(width: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: (position.isProfitable ? AppColors.profit : AppColors.loss).withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      '${position.pnlPercent >= 0 ? '+' : ''}${position.pnlPercent.toStringAsFixed(2)}%',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: position.isProfitable ? AppColors.profit : AppColors.loss,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 11,
                       ),
-                      const SizedBox(width: 4),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: (position.isProfitable
-                                  ? AppColors.profit
-                                  : AppColors.loss)
-                              .withOpacity(0.15),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          '${position.pnlPercent >= 0 ? '+' : ''}${position.pnlPercent.toStringAsFixed(2)}%',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: position.isProfitable
-                                ? AppColors.profit
-                                : AppColors.loss,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 11,
-                          ),
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ],
               ),
