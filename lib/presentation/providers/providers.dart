@@ -8,9 +8,11 @@ import '../../data/models/trade.dart';
 import '../../data/models/alpha_signal.dart';
 import '../../data/models/market_data.dart';
 import '../../data/models/performance.dart';
+import '../../data/models/account_transaction.dart';
 import '../../data/repositories/trading_repository.dart';
 import '../../data/repositories/market_data_repository.dart';
 import '../../data/repositories/performance_repository.dart';
+import '../../data/repositories/account_repository.dart';
 import '../../services/alpaca/alpaca_config.dart';
 import '../../services/alpaca/alpaca_client.dart';
 import '../../services/alpaca/alpaca_trading_repository.dart';
@@ -70,6 +72,30 @@ final performanceRepositoryProvider = Provider<PerformanceRepository>((ref) {
   return MockPerformanceRepository();
 });
 
+/// Account repository provider.
+final accountRepositoryProvider = Provider<AccountRepository>((ref) {
+  return AccountRepository();
+});
+
+/// Net capital (total deposits - withdrawals).
+final netCapitalProvider = FutureProvider<double>((ref) async {
+  final repo = ref.watch(accountRepositoryProvider);
+  return repo.getNetCapital();
+});
+
+/// Account balance: deposits - withdrawals + realized P&L.
+/// This is the available cash for trading.
+final accountBalanceProvider = FutureProvider<double>((ref) async {
+  final repo = ref.watch(accountRepositoryProvider);
+  return repo.getAccountBalance();
+});
+
+/// Account transactions list.
+final accountTransactionsProvider = FutureProvider<List<AccountTransaction>>((ref) async {
+  final repo = ref.watch(accountRepositoryProvider);
+  return repo.getTransactions();
+});
+
 // ============================================================================
 // Portfolio State
 // ============================================================================
@@ -125,14 +151,17 @@ class PortfolioNotifier extends StateNotifier<PortfolioState> {
   final MarketDataRepository _marketDataRepo;
 
   Future<void> loadPositions() async {
+    if (!mounted) return;
     state = state.copyWith(isLoading: true);
 
     try {
       final positions = await _tradingRepo.getAllPositions();
+      if (!mounted) return;
 
       // Update current prices if using SQLite (Alpaca positions already have current price)
       final updatedPositions = <Position>[];
       for (final position in positions) {
+        if (!mounted) return;
         if (position.currentPrice == 0) {
           final quote = await _marketDataRepo.getLatestQuote(position.ticker);
           if (quote != null) {
@@ -148,6 +177,7 @@ class PortfolioNotifier extends StateNotifier<PortfolioState> {
         }
       }
 
+      if (!mounted) return;
       final totalValue = updatedPositions.fold<double>(
         0,
         (sum, p) => sum + p.totalValue,
@@ -164,6 +194,7 @@ class PortfolioNotifier extends StateNotifier<PortfolioState> {
         isLoading: false,
       );
     } catch (e) {
+      if (!mounted) return;
       state = state.copyWith(
         isLoading: false,
         error: e.toString(),
@@ -260,3 +291,24 @@ final historicalDataProvider =
   final repo = ref.watch(marketDataRepositoryProvider);
   return repo.getHistoricalData(ticker, days: 30);
 });
+
+// ============================================================================
+// Trading Providers (for buy/sell functionality)
+// ============================================================================
+
+/// Trading repository provider (nullable, returns null if Alpaca not configured).
+/// Used by buy/sell buttons to check if trading is available.
+final tradingRepoProvider = Provider<TradingRepository?>((ref) {
+  final configAsync = ref.watch(alpacaConfigProvider);
+  if (configAsync.valueOrNull == null) {
+    return null;
+  }
+  return ref.watch(tradingRepositoryProvider);
+});
+
+/// Positions provider - fetches all positions from trading repository.
+final positionsProvider = FutureProvider<List<Position>>((ref) async {
+  final repo = ref.watch(tradingRepositoryProvider);
+  return repo.getAllPositions();
+});
+

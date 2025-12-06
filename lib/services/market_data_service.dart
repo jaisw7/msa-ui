@@ -24,7 +24,10 @@ class MarketDataService {
   Future<List<MarketData>> getData(String ticker, {int days = 7}) async {
     // On web, just fetch directly (no SQLite support)
     if (kIsWeb) {
-      return _yahooRepo.getHistoricalData(ticker, days: days);
+      final data = await _yahooRepo.getHistoricalData(ticker, days: days);
+      // ignore: avoid_print
+      print('MarketDataService: Fetched ${data.length} ticks for $ticker (web, no cache)');
+      return data;
     }
 
     // On native platforms, use SQLite cache
@@ -36,30 +39,66 @@ class MarketDataService {
 
     if (latestCached == null) {
       // No cached data - fetch full history
-      await ingestHistorical(ticker, days: days);
+      // ignore: avoid_print
+      print('MarketDataService: No cache for $ticker, fetching full history...');
+      await _ingestFull(ticker, days: days);
     } else {
-      // Check if we need to update (more than 5 minutes old for 1m data)
+      // Check if we need to update (more than 1 minute old for 1m data)
       final minutesSinceUpdate = now.difference(latestCached).inMinutes;
-      if (minutesSinceUpdate > 5) {
-        await ingestHistorical(ticker, days: days);
+      if (minutesSinceUpdate >= 1) {
+        // ignore: avoid_print
+        print('MarketDataService: Delta fetch for $ticker (since $latestCached)...');
+        await _ingestDelta(ticker, since: latestCached);
+      } else {
+        // ignore: avoid_print
+        print('MarketDataService: Cache fresh for $ticker ($minutesSinceUpdate min old)');
       }
     }
 
     // Return cached data
-    return _getCachedData(db, ticker, days: days);
+    final cached = await _getCachedData(db, ticker, days: days);
+    // ignore: avoid_print
+    print('MarketDataService: Returning ${cached.length} cached ticks for $ticker');
+    return cached;
   }
 
-  /// Ingest historical data for a ticker.
-  Future<int> ingestHistorical(String ticker, {int days = 7}) async {
+  /// Ingest full historical data for a ticker.
+  Future<int> _ingestFull(String ticker, {int days = 7}) async {
     if (kIsWeb) return 0;
 
     final bars = await _yahooRepo.getHistoricalData(ticker, days: days);
     if (bars.isEmpty) return 0;
 
     final db = await AppDatabase.database;
-    var count = 0;
+    final count = await _insertBars(db, bars);
+    // ignore: avoid_print
+    print('MarketDataService: Full fetch - cached $count bars for $ticker');
+    return count;
+  }
 
-    // Use batch for performance
+  /// Ingest delta (new bars since timestamp) for a ticker.
+  Future<int> _ingestDelta(String ticker, {required DateTime since}) async {
+    if (kIsWeb) return 0;
+
+    // Add 1 second to avoid re-fetching the last bar
+    final sinceAfter = since.add(const Duration(seconds: 1));
+    final bars = await _yahooRepo.getHistoricalData(ticker, since: sinceAfter);
+
+    if (bars.isEmpty) {
+      // ignore: avoid_print
+      print('MarketDataService: Delta fetch - no new bars');
+      return 0;
+    }
+
+    final db = await AppDatabase.database;
+    final count = await _insertBars(db, bars);
+    // ignore: avoid_print
+    print('MarketDataService: Delta fetch - cached $count new bars for $ticker');
+    return count;
+  }
+
+  /// Insert bars into database.
+  Future<int> _insertBars(Database db, List<MarketData> bars) async {
     final batch = db.batch();
     for (final bar in bars) {
       batch.insert(
@@ -76,13 +115,14 @@ class MarketDataService {
         },
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
-      count++;
     }
-
     await batch.commit(noResult: true);
-    // ignore: avoid_print
-    print('MarketDataService: Cached $count bars for $ticker (${_interval.value})');
-    return count;
+    return bars.length;
+  }
+
+  /// Ingest historical data for a ticker (legacy, calls full).
+  Future<int> ingestHistorical(String ticker, {int days = 7}) async {
+    return _ingestFull(ticker, days: days);
   }
 
   /// Get latest cached timestamp for a ticker.

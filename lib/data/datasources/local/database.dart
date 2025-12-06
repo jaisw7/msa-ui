@@ -7,7 +7,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 /// Database helper for local storage.
 class AppDatabase {
   static const String _dbName = 'msa.db';
-  static const int _dbVersion = 1;
+  static const int _dbVersion = 2;  // Bumped for account_transactions
 
   static Database? _database;
   static bool _ffiInitialized = false;
@@ -123,13 +123,40 @@ class AppDatabase {
     await db.execute('CREATE INDEX idx_trades_timestamp ON trades(timestamp)');
     await db.execute('CREATE INDEX idx_market_data_ticker ON market_data(ticker)');
 
+    await db.execute('''
+      CREATE TABLE account_transactions (
+        transaction_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        type TEXT NOT NULL,
+        amount REAL NOT NULL,
+        timestamp INTEGER NOT NULL,
+        notes TEXT,
+        created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000)
+      )
+    ''');
+    await db.execute('CREATE INDEX idx_account_transactions_timestamp ON account_transactions(timestamp)');
+
     // ignore: avoid_print
     print('AppDatabase: Tables created successfully');
   }
 
   /// Handle database upgrades.
   static Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    // Handle migrations as needed
+    // ignore: avoid_print
+    print('AppDatabase: Upgrading from $oldVersion to $newVersion');
+
+    if (oldVersion < 2) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS account_transactions (
+          transaction_id INTEGER PRIMARY KEY AUTOINCREMENT,
+          type TEXT NOT NULL,
+          amount REAL NOT NULL,
+          timestamp INTEGER NOT NULL,
+          notes TEXT,
+          created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000)
+        )
+      ''');
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_account_transactions_timestamp ON account_transactions(timestamp)');
+    }
   }
 
   /// Close the database.

@@ -22,6 +22,7 @@ class HomeScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final portfolioState = ref.watch(portfolioProvider);
     final signalsAsync = ref.watch(allSignalsProvider);
+    final cashBalanceAsync = ref.watch(accountBalanceProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -37,6 +38,7 @@ class HomeScreen extends ConsumerWidget {
         onRefresh: () async {
           ref.read(portfolioProvider.notifier).refresh();
           ref.invalidate(allSignalsProvider);
+          ref.invalidate(accountBalanceProvider);
         },
         child: portfolioState.isLoading
             ? const Center(child: CircularProgressIndicator())
@@ -47,7 +49,8 @@ class HomeScreen extends ConsumerWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _PortfolioValueCard(
-                      portfolioValue: portfolioState.totalValue,
+                      positionsValue: portfolioState.totalValue,
+                      cashBalance: cashBalanceAsync.valueOrNull ?? 0.0,
                       dailyPnl: portfolioState.dailyPnl,
                     ),
                     const SizedBox(height: AppDimensions.paddingL),
@@ -85,24 +88,22 @@ class HomeScreen extends ConsumerWidget {
 
 class _PortfolioValueCard extends StatelessWidget {
   const _PortfolioValueCard({
-    required this.portfolioValue,
+    required this.positionsValue,
+    required this.cashBalance,
     required this.dailyPnl,
   });
 
-  final double portfolioValue;
+  final double positionsValue;
+  final double cashBalance;
   final double dailyPnl;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final dailyPnlPercent = portfolioValue > 0
-        ? (dailyPnl / (portfolioValue - dailyPnl)) * 100
+    final totalValue = positionsValue + cashBalance;
+    final dailyPnlPercent = totalValue > 0
+        ? (dailyPnl / (totalValue - dailyPnl)) * 100
         : 0.0;
-
-    // Show demo data if no real data
-    final displayValue = portfolioValue > 0 ? portfolioValue : 102450.67;
-    final displayPnl = portfolioValue > 0 ? dailyPnl : 2450.67;
-    final displayPercent = portfolioValue > 0 ? dailyPnlPercent : 2.45;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -115,7 +116,7 @@ class _PortfolioValueCard extends StatelessWidget {
         ),
         const SizedBox(height: AppDimensions.paddingXS),
         Text(
-          NumberFormat.currency(symbol: '\$').format(displayValue),
+          NumberFormat.currency(symbol: '\$').format(totalValue),
           style: theme.textTheme.displaySmall?.copyWith(
             fontWeight: FontWeight.w700,
             letterSpacing: -1,
@@ -125,15 +126,15 @@ class _PortfolioValueCard extends StatelessWidget {
         Row(
           children: [
             Icon(
-              displayPnl >= 0 ? Icons.arrow_upward : Icons.arrow_downward,
-              color: displayPnl >= 0 ? AppColors.profit : AppColors.loss,
+              dailyPnl >= 0 ? Icons.arrow_upward : Icons.arrow_downward,
+              color: dailyPnl >= 0 ? AppColors.profit : AppColors.loss,
               size: 16,
             ),
             const SizedBox(width: 4),
             Text(
-              '${NumberFormat.currency(symbol: '\$').format(displayPnl.abs())} (${displayPercent.toStringAsFixed(2)}%)',
+              '${NumberFormat.currency(symbol: '\$').format(dailyPnl.abs())} (${dailyPnlPercent.toStringAsFixed(2)}%)',
               style: theme.textTheme.bodyLarge?.copyWith(
-                color: displayPnl >= 0 ? AppColors.profit : AppColors.loss,
+                color: dailyPnl >= 0 ? AppColors.profit : AppColors.loss,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -146,7 +147,63 @@ class _PortfolioValueCard extends StatelessWidget {
             ),
           ],
         ),
+        const SizedBox(height: AppDimensions.paddingS),
+        Row(
+          children: [
+            _ValueChip(
+              label: 'Cash',
+              value: cashBalance,
+              icon: Icons.account_balance_wallet_outlined,
+            ),
+            const SizedBox(width: AppDimensions.paddingS),
+            _ValueChip(
+              label: 'Positions',
+              value: positionsValue,
+              icon: Icons.pie_chart_outline,
+            ),
+          ],
+        ),
       ],
+    );
+  }
+}
+
+class _ValueChip extends StatelessWidget {
+  const _ValueChip({
+    required this.label,
+    required this.value,
+    required this.icon,
+  });
+
+  final String label;
+  final double value;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppDimensions.paddingS,
+        vertical: AppDimensions.paddingXS,
+      ),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(AppDimensions.radiusS),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: theme.colorScheme.onSurface.withValues(alpha: 0.6)),
+          const SizedBox(width: 4),
+          Text(
+            '$label: ${NumberFormat.compactCurrency(symbol: '\$').format(value)}',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -160,9 +217,15 @@ class _SparklineChart extends ConsumerWidget {
 
     return snapshotsAsync.when(
       data: (snapshots) {
-        final data = snapshots.isNotEmpty
-            ? snapshots.take(7).map((s) => s.portfolioValue).toList()
-            : [100000.0, 100500.0, 99800.0, 101200.0, 100800.0, 102000.0, 102450.0];
+        if (snapshots.isEmpty) {
+          return SizedBox(
+            height: AppDimensions.sparklineHeight,
+            child: Center(
+              child: Text('No performance data yet', style: Theme.of(context).textTheme.bodySmall),
+            ),
+          );
+        }
+        final data = snapshots.take(7).map((s) => s.portfolioValue).toList();
 
         final minY = data.reduce((a, b) => a < b ? a : b) * 0.998;
         final maxY = data.reduce((a, b) => a > b ? a : b) * 1.002;
@@ -241,13 +304,19 @@ class _PositionsList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final displayPositions = positions.isNotEmpty
-        ? positions.take(3).toList()
-        : [
-            Position(ticker: 'AAPL', shares: 50, avgCost: 170.50, currentPrice: 175.23, lastUpdated: DateTime.now()),
-            Position(ticker: 'MSFT', shares: 20, avgCost: 382.00, currentPrice: 380.45, lastUpdated: DateTime.now()),
-            Position(ticker: 'GOOGL', shares: 15, avgCost: 140.00, currentPrice: 145.60, lastUpdated: DateTime.now()),
-          ];
+    if (positions.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(AppDimensions.paddingL),
+        decoration: BoxDecoration(
+          color: Theme.of(context).cardColor,
+          borderRadius: BorderRadius.circular(AppDimensions.radiusM),
+        ),
+        child: const Center(
+          child: Text('No positions yet. Buy stocks to start trading!'),
+        ),
+      );
+    }
+    final displayPositions = positions.take(3).toList();
 
     return Column(children: displayPositions.map((p) => _PositionTile(position: p)).toList());
   }
@@ -316,12 +385,19 @@ class _SignalsList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final displaySignals = signals.isNotEmpty
-        ? signals
-        : [
-            AlphaSignal(alphaName: 'momentum_20', ticker: 'AAPL', score: 0.82, timestamp: DateTime.now().subtract(const Duration(hours: 2))),
-            AlphaSignal(alphaName: 'rsi_14', ticker: 'TSLA', score: -0.65, timestamp: DateTime.now().subtract(const Duration(hours: 5))),
-          ];
+    if (signals.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(AppDimensions.paddingL),
+        decoration: BoxDecoration(
+          color: Theme.of(context).cardColor,
+          borderRadius: BorderRadius.circular(AppDimensions.radiusM),
+        ),
+        child: const Center(
+          child: Text('No signals yet. Add positions to see trading signals.'),
+        ),
+      );
+    }
+    final displaySignals = signals;
 
     return Column(children: displaySignals.map((s) => _SignalTile(signal: s)).toList());
   }

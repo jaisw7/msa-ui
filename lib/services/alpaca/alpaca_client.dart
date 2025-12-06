@@ -131,6 +131,53 @@ class AlpacaClient {
     }
   }
 
+  /// Get intraday minute bars with extended hours (pre-market + regular + after-hours).
+  /// Returns data for the most recent trading day if market is closed.
+  Future<List<AlpacaBar>> getIntradayBars(String symbol, {String timeframe = '1Min'}) async {
+    try {
+      final dataEndpoint = 'https://data.alpaca.markets/v2';
+
+      final dataDio = Dio(BaseOptions(
+        baseUrl: dataEndpoint,
+        headers: {
+          'APCA-API-KEY-ID': _config.apiKey,
+          'APCA-API-SECRET-KEY': _config.apiSecret,
+        },
+      ));
+
+      // Get data from midnight today (or yesterday if before market open)
+      final now = DateTime.now();
+      final todayMidnight = DateTime(now.year, now.month, now.day, 0, 0, 0);
+
+      // If it's before 4AM ET (when pre-market starts), show yesterday's data
+      // For simplicity, we'll fetch last 2 days and filter
+      final start = todayMidnight.subtract(const Duration(days: 1));
+
+      final response = await dataDio.get('/stocks/$symbol/bars', queryParameters: {
+        'start': start.toUtc().toIso8601String(),
+        'end': now.toUtc().toIso8601String(),
+        'timeframe': timeframe,
+        'limit': 10000,  // Max bars to get full day coverage
+      });
+
+      final bars = response.data['bars'] as List<dynamic>? ?? [];
+      final allBars = bars.map((b) => AlpacaBar.fromJson(symbol, b as Map<String, dynamic>)).toList();
+
+      if (allBars.isEmpty) return [];
+
+      // Find the most recent trading day and return only that day's bars
+      final latestBar = allBars.last;
+      final latestDate = DateTime(latestBar.timestamp.year, latestBar.timestamp.month, latestBar.timestamp.day);
+      final midnight = DateTime(latestDate.year, latestDate.month, latestDate.day, 0, 0, 0);
+
+      return allBars.where((bar) => bar.timestamp.isAfter(midnight) || bar.timestamp.isAtSameMomentAs(midnight)).toList();
+    } catch (e) {
+      // ignore: avoid_print
+      print('AlpacaClient.getIntradayBars error: $e');
+      return [];
+    }
+  }
+
   /// Get recent orders.
   Future<List<AlpacaOrder>> getOrders({String status = 'all', int limit = 50}) async {
     try {

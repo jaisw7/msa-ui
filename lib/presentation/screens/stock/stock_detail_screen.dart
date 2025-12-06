@@ -10,6 +10,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_dimensions.dart';
 import '../../../data/models/market_data.dart';
 import '../../../data/models/alpha_signal.dart';
+import '../../../data/models/trade.dart';
 import '../../../services/market_data_service.dart';
 import '../../../services/yahoo/yahoo_finance_repository.dart';
 import '../../providers/providers.dart';
@@ -32,6 +33,7 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
   List<MarketData> _chartData = [];
   bool _isLoading = true;
   MarketData? _latestQuote;
+  MarketData? _hoveredData;  // Track hovered point for interactive header
 
   @override
   void initState() {
@@ -60,7 +62,7 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
       // ignore: avoid_print
       print('StockDetailScreen: Loading ${widget.ticker} (${interval.value}, ${days}d)');
 
-      // Create service with appropriate interval
+      // Use Yahoo Finance (includes pre/post market with includePrePost=true)
       final service = MarketDataService(interval: interval);
       final data = await service.getData(widget.ticker, days: days);
 
@@ -84,18 +86,24 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
   List<MarketData> _getFilteredData() {
     if (_chartData.isEmpty) return [];
 
-    // For 1-minute data, 1 trading day = ~390 bars (6.5 hours * 60 min)
-    // Using count-based filtering for 1D to avoid empty charts on weekends
+    // For 1D range, show most recent trading day's data
     if (_selectedRange == TimeRange.day) {
-      final dayBars = 400; // ~1 trading day of 1m data
-      if (_chartData.length <= dayBars) return _chartData;
-      return _chartData.sublist(_chartData.length - dayBars);
+      if (_chartData.isNotEmpty) {
+        final lastBar = _chartData.last;
+        final lastDayMidnight = DateTime(lastBar.timestamp.year, lastBar.timestamp.month, lastBar.timestamp.day);
+        return _chartData.where((d) =>
+          d.timestamp.isAfter(lastDayMidnight) ||
+          d.timestamp.isAtSameMomentAs(lastDayMidnight)
+        ).toList();
+      }
+      return [];
     }
 
     final now = DateTime.now();
+
     // Note: 1m data only has 7 days max, so 1M/3M/1Y will show all available data
     final cutoff = switch (_selectedRange) {
-      TimeRange.day => now.subtract(const Duration(days: 1)), // Won't reach here
+      TimeRange.day => DateTime(now.year, now.month, now.day), // Won't reach here
       TimeRange.week => now.subtract(const Duration(days: 7)),
       TimeRange.month => now.subtract(const Duration(days: 30)),
       TimeRange.threeMonth => now.subtract(const Duration(days: 90)),
@@ -128,7 +136,13 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
               child: ListView(
                 padding: const EdgeInsets.all(AppDimensions.paddingM),
                 children: [
-                  _PriceHeader(ticker: widget.ticker, quote: _latestQuote, chartData: _chartData),
+                  _PriceHeader(
+                    ticker: widget.ticker,
+                    quote: _latestQuote,
+                    chartData: _getFilteredData(),
+                    hoveredData: _hoveredData,
+                    selectedRange: _selectedRange,
+                  ),
                   const SizedBox(height: AppDimensions.paddingL),
                   _ChartSection(
                     data: _getFilteredData(),
@@ -139,9 +153,10 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
                         _loadData();  // Reload with appropriate interval
                       }
                     },
+                    onHover: (data) => setState(() => _hoveredData = data),
                   ),
                   const SizedBox(height: AppDimensions.paddingL),
-                  _StatsSection(quote: _latestQuote, chartData: _chartData),
+                  _StatsSection(quote: _latestQuote, chartData: _getFilteredData(), selectedRange: _selectedRange),
                   const SizedBox(height: AppDimensions.paddingL),
                   Text('Alpha Signals', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
                   const SizedBox(height: AppDimensions.paddingS),
@@ -153,33 +168,68 @@ class _StockDetailScreenState extends ConsumerState<StockDetailScreen> {
                 ],
               ),
             ),
-      bottomNavigationBar: _TradeButtons(ticker: widget.ticker),
+      bottomNavigationBar: _TradeButtons(ticker: widget.ticker, currentPrice: _latestQuote?.close),
     );
   }
 }
 
 class _PriceHeader extends StatelessWidget {
-  const _PriceHeader({required this.ticker, required this.quote, required this.chartData});
+  const _PriceHeader({
+    required this.ticker,
+    required this.quote,
+    required this.chartData,
+    this.hoveredData,
+    required this.selectedRange,
+  });
 
   final String ticker;
   final MarketData? quote;
   final List<MarketData> chartData;
+  final MarketData? hoveredData;
+  final TimeRange selectedRange;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final currencyFormat = NumberFormat.currency(symbol: '\$');
 
-    final price = quote?.close ?? 0;
-    final previousClose = chartData.length > 1 ? chartData[chartData.length - 2].close : price;
-    final change = price - previousClose;
-    final changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0;
+    // Use hovered data if available, otherwise use latest quote
+    final displayData = hoveredData ?? quote;
+    final price = displayData?.close ?? 0;
+
+    // Reference price: first bar of the day (12AM) for 1D, or first bar of range
+    final referencePrice = chartData.isNotEmpty ? chartData.first.close : price;
+    final change = price - referencePrice;
+    final changePercent = referencePrice > 0 ? (change / referencePrice) * 100 : 0;
     final isPositive = change >= 0;
+
+    // Format time for hovered point
+    String? timeLabel;
+    if (hoveredData != null) {
+      if (selectedRange == TimeRange.day) {
+        timeLabel = DateFormat('h:mm a').format(hoveredData!.timestamp);
+      } else {
+        timeLabel = DateFormat('h:mm a, MMM d').format(hoveredData!.timestamp);
+      }
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(ticker, style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w600)),
+        Row(
+          children: [
+            Text(ticker, style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w600)),
+            if (timeLabel != null) ...[
+              const SizedBox(width: 8),
+              Text(
+                timeLabel,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                ),
+              ),
+            ],
+          ],
+        ),
         const SizedBox(height: AppDimensions.paddingXS),
         Text(
           currencyFormat.format(price),
@@ -195,14 +245,19 @@ class _PriceHeader extends StatelessWidget {
             ),
             const SizedBox(width: 4),
             Text(
-              '${currencyFormat.format(change.abs())} (${changePercent.toStringAsFixed(2)}%)',
+              '${isPositive ? "+" : ""}${currencyFormat.format(change)} (${isPositive ? "+" : ""}${changePercent.toStringAsFixed(2)}%)',
               style: theme.textTheme.bodyLarge?.copyWith(
                 color: isPositive ? AppColors.profit : AppColors.loss,
                 fontWeight: FontWeight.w600,
               ),
             ),
             const SizedBox(width: 8),
-            Text('Today', style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurface.withValues(alpha: 0.5))),
+            Text(
+              hoveredData != null ? 'vs Open' : 'Today',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+              ),
+            ),
           ],
         ),
       ],
@@ -211,11 +266,17 @@ class _PriceHeader extends StatelessWidget {
 }
 
 class _ChartSection extends StatelessWidget {
-  const _ChartSection({required this.data, required this.selectedRange, required this.onRangeChanged});
+  const _ChartSection({
+    required this.data,
+    required this.selectedRange,
+    required this.onRangeChanged,
+    required this.onHover,
+  });
 
   final List<MarketData> data;
   final TimeRange selectedRange;
   final ValueChanged<TimeRange> onRangeChanged;
+  final ValueChanged<MarketData?> onHover;
 
   @override
   Widget build(BuildContext context) {
@@ -266,12 +327,50 @@ class _ChartSection extends StatelessWidget {
                 ),
               ],
               lineTouchData: LineTouchData(
+                handleBuiltInTouches: true,
+                touchCallback: (FlTouchEvent event, LineTouchResponse? response) {
+                  // Clear hover on any end/exit event
+                  if (event is FlTapUpEvent ||
+                      event is FlPanEndEvent ||
+                      event is FlLongPressEnd ||
+                      event is FlPointerExitEvent ||
+                      response == null ||
+                      response.lineBarSpots == null ||
+                      response.lineBarSpots!.isEmpty) {
+                    onHover(null);
+                    return;
+                  }
+
+                  // Touch active - update hover
+                  final spot = response.lineBarSpots!.first;
+                  final index = spot.x.toInt();
+                  if (index >= 0 && index < data.length) {
+                    onHover(data[index]);
+                  }
+                },
                 touchTooltipData: LineTouchTooltipData(
+                  fitInsideHorizontally: true,
+                  fitInsideVertically: true,
                   getTooltipItems: (spots) => spots.map((spot) {
                     final bar = data[spot.x.toInt()];
+
+                    // Format time based on selected range
+                    final String timeStr;
+                    if (selectedRange == TimeRange.day) {
+                      // 1D: Show time only (12-hour format)
+                      timeStr = DateFormat('h:mm a').format(bar.timestamp);
+                    } else {
+                      // 1W+: Show time and date
+                      timeStr = DateFormat('h:mm a, MMM d').format(bar.timestamp);
+                    }
+
                     return LineTooltipItem(
-                      '\$${bar.close.toStringAsFixed(2)}\n${DateFormat('MMM d').format(bar.timestamp)}',
-                      TextStyle(color: theme.colorScheme.onSurface),
+                      timeStr,
+                      TextStyle(
+                        color: theme.colorScheme.onSurface,
+                        fontWeight: FontWeight.w500,
+                        fontSize: 12,
+                      ),
                     );
                   }).toList(),
                 ),
@@ -343,22 +442,38 @@ class _RangeButton extends StatelessWidget {
 }
 
 class _StatsSection extends StatelessWidget {
-  const _StatsSection({required this.quote, required this.chartData});
+  const _StatsSection({required this.quote, required this.chartData, required this.selectedRange});
 
   final MarketData? quote;
   final List<MarketData> chartData;
+  final TimeRange selectedRange;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    if (quote == null) return const SizedBox.shrink();
+    if (quote == null || chartData.isEmpty) return const SizedBox.shrink();
 
-    // Calculate stats from chart data
+    // Calculate stats from chart data (not just the last bar)
     final volumes = chartData.map((d) => d.volume).toList();
     final avgVolume = volumes.isNotEmpty ? volumes.reduce((a, b) => a + b) / volumes.length : 0;
-    final high52w = chartData.isNotEmpty ? chartData.map((d) => d.high).reduce((a, b) => a > b ? a : b) : 0.0;
-    final low52w = chartData.isNotEmpty ? chartData.map((d) => d.low).reduce((a, b) => a < b ? a : b) : 0.0;
+    final totalVolume = volumes.isNotEmpty ? volumes.reduce((a, b) => a + b) : 0;
+
+    // Open = first bar's open, High/Low = range extremes
+    final rangeOpen = chartData.first.open;
+    final rangeHigh = chartData.map((d) => d.high).reduce((a, b) => a > b ? a : b);
+    final rangeLow = chartData.map((d) => d.low).reduce((a, b) => a < b ? a : b);
+    final rangeClose = chartData.last.close;
+
+    // Label based on selected range
+    final rangeLabel = switch (selectedRange) {
+      TimeRange.day => 'Day',
+      TimeRange.week => 'Week',
+      TimeRange.month => 'Month',
+      TimeRange.threeMonth => '3M',
+      TimeRange.year => '52W',
+      TimeRange.all => 'All',
+    };
 
     return Container(
       padding: const EdgeInsets.all(AppDimensions.paddingM),
@@ -373,29 +488,22 @@ class _StatsSection extends StatelessWidget {
           const SizedBox(height: AppDimensions.paddingM),
           Row(
             children: [
-              Expanded(child: _StatItem(label: 'Open', value: '\$${quote!.open.toStringAsFixed(2)}')),
-              Expanded(child: _StatItem(label: 'High', value: '\$${quote!.high.toStringAsFixed(2)}')),
+              Expanded(child: _StatItem(label: 'Open', value: '\$${rangeOpen.toStringAsFixed(2)}')),
+              Expanded(child: _StatItem(label: '$rangeLabel High', value: '\$${rangeHigh.toStringAsFixed(2)}')),
             ],
           ),
           const SizedBox(height: AppDimensions.paddingS),
           Row(
             children: [
-              Expanded(child: _StatItem(label: 'Low', value: '\$${quote!.low.toStringAsFixed(2)}')),
-              Expanded(child: _StatItem(label: 'Volume', value: _formatVolume(quote!.volume))),
+              Expanded(child: _StatItem(label: 'Close', value: '\$${rangeClose.toStringAsFixed(2)}')),
+              Expanded(child: _StatItem(label: '$rangeLabel Low', value: '\$${rangeLow.toStringAsFixed(2)}')),
             ],
           ),
           const SizedBox(height: AppDimensions.paddingS),
           Row(
             children: [
-              Expanded(child: _StatItem(label: '52W High', value: '\$${high52w.toStringAsFixed(2)}')),
-              Expanded(child: _StatItem(label: '52W Low', value: '\$${low52w.toStringAsFixed(2)}')),
-            ],
-          ),
-          const SizedBox(height: AppDimensions.paddingS),
-          Row(
-            children: [
+              Expanded(child: _StatItem(label: 'Volume', value: _formatVolume(totalVolume))),
               Expanded(child: _StatItem(label: 'Avg Volume', value: _formatVolume(avgVolume.toInt()))),
-              const Expanded(child: SizedBox()),
             ],
           ),
         ],
@@ -494,9 +602,10 @@ class _SignalsSection extends StatelessWidget {
 }
 
 class _TradeButtons extends ConsumerWidget {
-  const _TradeButtons({required this.ticker});
+  const _TradeButtons({required this.ticker, required this.currentPrice});
 
   final String ticker;
+  final double? currentPrice;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -517,7 +626,7 @@ class _TradeButtons extends ConsumerWidget {
         children: [
           Expanded(
             child: OutlinedButton(
-              onPressed: () => _showTradeDialog(context, false),
+              onPressed: () => _showTradeDialog(context, ref, false),
               style: OutlinedButton.styleFrom(foregroundColor: AppColors.sellSignal),
               child: const Text('SELL'),
             ),
@@ -525,7 +634,7 @@ class _TradeButtons extends ConsumerWidget {
           const SizedBox(width: AppDimensions.paddingM),
           Expanded(
             child: FilledButton(
-              onPressed: () => _showTradeDialog(context, true),
+              onPressed: () => _showTradeDialog(context, ref, true),
               style: FilledButton.styleFrom(backgroundColor: AppColors.buySignal),
               child: const Text('BUY'),
             ),
@@ -535,16 +644,171 @@ class _TradeButtons extends ConsumerWidget {
     );
   }
 
-  void _showTradeDialog(BuildContext context, bool isBuy) {
+  void _showTradeDialog(BuildContext context, WidgetRef ref, bool isBuy) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('${isBuy ? "Buy" : "Sell"} $ticker'),
-        content: const Text('Trading feature coming soon!'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK')),
-        ],
+      builder: (context) => _TradeDialog(
+        ticker: ticker,
+        isBuy: isBuy,
+        currentPrice: currentPrice,
       ),
     );
   }
 }
+
+class _TradeDialog extends ConsumerStatefulWidget {
+  const _TradeDialog({
+    required this.ticker,
+    required this.isBuy,
+    this.currentPrice,
+  });
+
+  final String ticker;
+  final bool isBuy;
+  final double? currentPrice;
+
+  @override
+  ConsumerState<_TradeDialog> createState() => _TradeDialogState();
+}
+
+class _TradeDialogState extends ConsumerState<_TradeDialog> {
+  final _quantityController = TextEditingController(text: '1');
+  bool _isSubmitting = false;
+  String? _error;
+
+  int get _quantity => int.tryParse(_quantityController.text) ?? 0;
+  double get _estimatedValue => _quantity * (widget.currentPrice ?? 0);
+
+  @override
+  void dispose() {
+    _quantityController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submitOrder() async {
+    if (_quantity <= 0) {
+      setState(() => _error = 'Enter a valid quantity');
+      return;
+    }
+
+    setState(() {
+      _isSubmitting = true;
+      _error = null;
+    });
+
+    try {
+      final tradingRepo = ref.read(tradingRepoProvider);
+      if (tradingRepo == null) {
+        throw Exception('Trading not configured');
+      }
+
+      // Create and save the trade (this submits to Alpaca)
+      final trade = Trade(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        ticker: widget.ticker,
+        type: widget.isBuy ? TradeType.buy : TradeType.sell,
+        shares: _quantity,
+        price: widget.currentPrice ?? 0,
+        timestamp: DateTime.now(),
+        signal: 'manual',
+        pnl: null,
+      );
+
+      await tradingRepo.saveTrade(trade);
+
+      // Refresh positions
+      ref.invalidate(positionsProvider);
+
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${widget.isBuy ? "Bought" : "Sold"} $_quantity shares of ${widget.ticker}'),
+            backgroundColor: widget.isBuy ? AppColors.buySignal : AppColors.sellSignal,
+          ),
+        );
+      }
+    } catch (e) {
+      setState(() {
+        _isSubmitting = false;
+        _error = e.toString();
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final currencyFormat = NumberFormat.currency(symbol: '\$');
+
+    return AlertDialog(
+      title: Row(
+        children: [
+          Icon(
+            widget.isBuy ? Icons.arrow_upward : Icons.arrow_downward,
+            color: widget.isBuy ? AppColors.buySignal : AppColors.sellSignal,
+          ),
+          const SizedBox(width: 8),
+          Text('${widget.isBuy ? "Buy" : "Sell"} ${widget.ticker}'),
+        ],
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Current price
+          if (widget.currentPrice != null)
+            Text(
+              'Current Price: ${currencyFormat.format(widget.currentPrice)}',
+              style: theme.textTheme.bodyMedium,
+            ),
+          const SizedBox(height: 16),
+
+          // Quantity input
+          TextField(
+            controller: _quantityController,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              labelText: 'Quantity (shares)',
+              border: OutlineInputBorder(),
+            ),
+            onChanged: (_) => setState(() {}),
+          ),
+          const SizedBox(height: 16),
+
+          // Estimated value
+          Text(
+            'Estimated Value: ${currencyFormat.format(_estimatedValue)}',
+            style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+          ),
+
+          // Error message
+          if (_error != null) ...[
+            const SizedBox(height: 8),
+            Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
+          ],
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: _isSubmitting ? null : () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _isSubmitting ? null : _submitOrder,
+          style: FilledButton.styleFrom(
+            backgroundColor: widget.isBuy ? AppColors.buySignal : AppColors.sellSignal,
+          ),
+          child: _isSubmitting
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                )
+              : Text(widget.isBuy ? 'BUY' : 'SELL'),
+        ),
+      ],
+    );
+  }
+}
+

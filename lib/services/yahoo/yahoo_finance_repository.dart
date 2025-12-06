@@ -62,12 +62,18 @@ class YahooFinanceRepository implements MarketDataRepository {
   }
 
   @override
-  Future<List<MarketData>> getHistoricalData(String ticker, {int days = 100}) async {
+  Future<List<MarketData>> getHistoricalData(String ticker, {int days = 100, DateTime? since}) async {
     try {
-      final effectiveDays = days > _interval.maxDays ? _interval.maxDays : days;
-
       final now = DateTime.now();
-      final start = now.subtract(Duration(days: effectiveDays));
+
+      // If since is provided, fetch from that timestamp; otherwise use days
+      final DateTime start;
+      if (since != null) {
+        start = since;
+      } else {
+        final effectiveDays = days > _interval.maxDays ? _interval.maxDays : days;
+        start = now.subtract(Duration(days: effectiveDays));
+      }
 
       final period1 = (start.millisecondsSinceEpoch / 1000).floor();
       final period2 = (now.millisecondsSinceEpoch / 1000).floor();
@@ -75,10 +81,10 @@ class YahooFinanceRepository implements MarketDataRepository {
       final tickerUpper = ticker.toUpperCase().trim();
       final url = 'https://query2.finance.yahoo.com/v8/finance/chart/$tickerUpper'
           '?period1=$period1&period2=$period2&interval=${_interval.value}'
-          '&includePrePost=false&events=div,splits';
+          '&includePrePost=true&events=div,splits';
 
       // ignore: avoid_print
-      print('YahooFinance: Fetching $tickerUpper (${_interval.value}, ${effectiveDays}d)');
+      print('YahooFinance: Fetching $tickerUpper (${_interval.value}, since ${start.toIso8601String()})');
 
       final response = await _dio.get(url);
 

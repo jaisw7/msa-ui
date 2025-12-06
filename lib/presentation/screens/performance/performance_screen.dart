@@ -222,16 +222,20 @@ class _TradeHistory extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Use demo data if no trades
-    final displayTrades = trades.isNotEmpty
-        ? trades
-        : [
-            Trade(id: '1', ticker: 'AAPL', type: TradeType.buy, shares: 10, price: 173.50, timestamp: DateTime.now().subtract(const Duration(days: 1)), signal: 'momentum_20', pnl: 125.50),
-            Trade(id: '2', ticker: 'MSFT', type: TradeType.sell, shares: 5, price: 378.20, timestamp: DateTime.now().subtract(const Duration(days: 2)), signal: 'rsi_14', pnl: -45.20),
-            Trade(id: '3', ticker: 'GOOGL', type: TradeType.buy, shares: 8, price: 142.00, timestamp: DateTime.now().subtract(const Duration(days: 3)), signal: 'ml_xgboost', pnl: 230.00),
-          ];
+    if (trades.isEmpty) {
+      return Center(
+        child: Column(
+          children: [
+            const SizedBox(height: AppDimensions.paddingL),
+            Icon(Icons.receipt_long_outlined, size: 48, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3)),
+            const SizedBox(height: AppDimensions.paddingM),
+            Text('No trades yet', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5))),
+          ],
+        ),
+      );
+    }
 
-    return Column(children: displayTrades.map((t) => _TradeTile(trade: t)).toList());
+    return Column(children: trades.map((t) => _TradeTile(trade: t)).toList());
   }
 }
 

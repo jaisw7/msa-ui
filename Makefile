@@ -49,7 +49,13 @@ run:
 	flutter run
 
 run-linux:
-	flutter run -d linux
+	@# Source Alpaca config from .env if it exists
+	@if [ -f .env ]; then \
+		export $$(grep -v '^#' .env | xargs) && \
+		flutter run -d linux; \
+	else \
+		flutter run -d linux; \
+	fi
 
 run-chrome:
 	flutter run -d chrome

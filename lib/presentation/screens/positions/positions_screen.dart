@@ -19,17 +19,39 @@ class PositionsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final portfolioState = ref.watch(portfolioProvider);
+    final positions = portfolioState.positions;
 
-    // Use demo data if no positions
-    final positions = portfolioState.positions.isNotEmpty
-        ? portfolioState.positions
-        : [
-            Position(ticker: 'AAPL', shares: 50, avgCost: 170.50, currentPrice: 175.23, lastUpdated: DateTime.now()),
-            Position(ticker: 'MSFT', shares: 20, avgCost: 382.00, currentPrice: 380.45, lastUpdated: DateTime.now()),
-            Position(ticker: 'GOOGL', shares: 15, avgCost: 140.00, currentPrice: 145.60, lastUpdated: DateTime.now()),
-            Position(ticker: 'NVDA', shares: 10, avgCost: 480.00, currentPrice: 502.30, lastUpdated: DateTime.now()),
-            Position(ticker: 'TSLA', shares: 25, avgCost: 242.00, currentPrice: 238.50, lastUpdated: DateTime.now()),
-          ];
+    if (portfolioState.isLoading) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Positions')),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (positions.isEmpty) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Positions')),
+        body: RefreshIndicator(
+          onRefresh: () async => ref.read(portfolioProvider.notifier).refresh(),
+          child: ListView(
+            children: [
+              SizedBox(height: MediaQuery.of(context).size.height * 0.3),
+              Center(
+                child: Column(
+                  children: [
+                    Icon(Icons.account_balance_wallet_outlined, size: 64, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3)),
+                    const SizedBox(height: AppDimensions.paddingM),
+                    Text('No positions', style: Theme.of(context).textTheme.titleMedium?.copyWith(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5))),
+                    const SizedBox(height: AppDimensions.paddingS),
+                    Text('Your holdings will appear here', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3))),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
     final totalValue = positions.fold<double>(0, (sum, p) => sum + p.totalValue);
     final totalPnl = positions.fold<double>(0, (sum, p) => sum + p.pnl);
@@ -37,19 +59,15 @@ class PositionsScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Positions')),
       body: RefreshIndicator(
-        onRefresh: () async {
-          ref.read(portfolioProvider.notifier).refresh();
-        },
-        child: portfolioState.isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : ListView(
-                padding: const EdgeInsets.all(AppDimensions.paddingM),
-                children: [
-                  _SummaryCard(totalValue: totalValue, totalPnl: totalPnl),
-                  const SizedBox(height: AppDimensions.paddingL),
-                  ...positions.map((p) => _PositionCard(position: p)),
-                ],
-              ),
+        onRefresh: () async => ref.read(portfolioProvider.notifier).refresh(),
+        child: ListView(
+          padding: const EdgeInsets.all(AppDimensions.paddingM),
+          children: [
+            _SummaryCard(totalValue: totalValue, totalPnl: totalPnl),
+            const SizedBox(height: AppDimensions.paddingL),
+            ...positions.map((p) => _PositionCard(position: p)),
+          ],
+        ),
       ),
     );
   }
