@@ -78,5 +78,9 @@ build-ios:
 pre-commit: format-fix analyze test
 	@echo "✓ All pre-commit checks passed"
 
-setup: install
+pre-commit-install:
+	pre-commit install
+	@echo "✓ Pre-commit hooks installed"
+
+setup: install pre-commit-install
 	@echo "✓ Project setup complete"

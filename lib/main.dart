@@ -9,7 +9,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app.dart';
 import 'services/alpaca/alpaca_config.dart';
-import 'services/auto_trading_config.dart';
 import 'presentation/providers/providers.dart';
 
 void main() async {
@@ -18,11 +17,7 @@ void main() async {
   // Seed Alpaca config from environment variables (for dev)
   await _seedAlpacaConfigFromEnv();
 
-  runApp(
-    ProviderScope(
-      child: _AppWithServices(),
-    ),
-  );
+  runApp(ProviderScope(child: _AppWithServices()));
 }
 
 /// Wrapper widget that initializes background services.
