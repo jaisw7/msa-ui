@@ -9,6 +9,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app.dart';
 import 'services/alpaca/alpaca_config.dart';
+import 'services/auto_trading_config.dart';
+import 'presentation/providers/providers.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -17,10 +19,63 @@ void main() async {
   await _seedAlpacaConfigFromEnv();
 
   runApp(
-    const ProviderScope(
-      child: MsaApp(),
+    ProviderScope(
+      child: _AppWithServices(),
     ),
   );
+}
+
+/// Wrapper widget that initializes background services.
+class _AppWithServices extends ConsumerStatefulWidget {
+  @override
+  ConsumerState<_AppWithServices> createState() => _AppWithServicesState();
+}
+
+class _AppWithServicesState extends ConsumerState<_AppWithServices>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+
+    // Start background services after first frame
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _startBackgroundServices();
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _stopBackgroundServices();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _startBackgroundServices();
+    } else if (state == AppLifecycleState.paused) {
+      _stopBackgroundServices();
+    }
+  }
+
+  void _startBackgroundServices() {
+    final snapshotService = ref.read(performanceSnapshotServiceProvider);
+    snapshotService.start();
+    debugPrint('Background services started');
+  }
+
+  void _stopBackgroundServices() {
+    final snapshotService = ref.read(performanceSnapshotServiceProvider);
+    snapshotService.stop();
+    debugPrint('Background services stopped');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return const MsaApp();
+  }
 }
 
 /// Seed Alpaca configuration from environment variables if not already set.

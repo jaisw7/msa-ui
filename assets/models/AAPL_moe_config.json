@@ -1,0 +1,44 @@
+{
+  "type": "moe",
+  "n_regimes": 3,
+  "gating_model": "AAPL_moe_gating.onnx",
+  "gating_features": [
+    "regime_feat_0",
+    "regime_feat_1",
+    "regime_feat_2",
+    "regime_feat_3",
+    "regime_feat_4",
+    "regime_feat_5",
+    "regime_feat_6",
+    "regime_feat_7"
+  ],
+  "experts": {
+    "0": "AAPL_moe_expert_0.onnx",
+    "1": "AAPL_moe_expert_1.onnx",
+    "2": "AAPL_moe_expert_2.onnx"
+  },
+  "alpha_features": [
+    "momentum_10d",
+    "ml_AAPL_xgboost_20251206_053928"
+  ],
+  "regime_stats": {
+    "0": {
+      "count": 2172,
+      "mean_return": -0.0001532561160509444,
+      "std_return": 0.0048534633795764785,
+      "dispersion_avg": 0.3524940558385048
+    },
+    "1": {
+      "count": 486,
+      "mean_return": 0.001426879900677848,
+      "std_return": 0.011164479501212828,
+      "dispersion_avg": 1.8890506257014277
+    },
+    "2": {
+      "count": 714,
+      "mean_return": 0.0001217931540508134,
+      "std_return": 0.007038085040452251,
+      "dispersion_avg": 0.6569702727329578
+    }
+  }
+}

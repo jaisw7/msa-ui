@@ -41,7 +41,7 @@ class AutoTradingConfig {
     sellThreshold: -0.7,
     maxPositionSize: 100,
     maxPositionValue: 10000,
-    tickers: ['AAPL', 'MSFT', 'GOOGL'],
+    tickers: ['AAPL', 'GOOGL'],
   );
 
   // Storage keys
@@ -84,6 +84,16 @@ class AutoTradingConfig {
     await _storage.write(key: _keyMaxPositionSize, value: maxPositionSize.toString());
     await _storage.write(key: _keyMaxPositionValue, value: maxPositionValue.toString());
     await _storage.write(key: _keyTickers, value: tickers.join(','));
+  }
+
+  /// Clear all stored configuration (resets to defaults on next load).
+  static Future<void> clear() async {
+    await _storage.delete(key: _keyEnabled);
+    await _storage.delete(key: _keyBuyThreshold);
+    await _storage.delete(key: _keySellThreshold);
+    await _storage.delete(key: _keyMaxPositionSize);
+    await _storage.delete(key: _keyMaxPositionValue);
+    await _storage.delete(key: _keyTickers);
   }
 
   /// Create a copy with modified fields.

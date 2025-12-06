@@ -18,6 +18,7 @@ import '../../services/alpaca/alpaca_client.dart';
 import '../../services/alpaca/alpaca_trading_repository.dart';
 import '../../services/alpaca/alpaca_market_data_repository.dart';
 import '../../services/yahoo/yahoo_finance_repository.dart';
+import '../../services/performance_snapshot_service.dart';
 
 // ============================================================================
 // Alpaca Config Provider
@@ -67,14 +68,28 @@ final marketDataRepositoryProvider = Provider<MarketDataRepository>((ref) {
   return YahooFinanceRepository();
 });
 
-/// Performance repository provider (using mock for now).
+/// Performance repository provider.
 final performanceRepositoryProvider = Provider<PerformanceRepository>((ref) {
-  return MockPerformanceRepository();
+  return SqlitePerformanceRepository();
 });
 
 /// Account repository provider.
 final accountRepositoryProvider = Provider<AccountRepository>((ref) {
   return AccountRepository();
+});
+
+/// Performance snapshot service provider.
+/// Starts background job that captures daily snapshots during off-hours.
+final performanceSnapshotServiceProvider = Provider<PerformanceSnapshotService>((ref) {
+  final performanceRepo = ref.watch(performanceRepositoryProvider);
+  final tradingRepo = ref.watch(tradingRepositoryProvider);
+  final accountRepo = ref.watch(accountRepositoryProvider);
+
+  return PerformanceSnapshotService(
+    performanceRepo: performanceRepo,
+    tradingRepo: tradingRepo,
+    accountRepo: accountRepo,
+  );
 });
 
 /// Net capital (total deposits - withdrawals).
